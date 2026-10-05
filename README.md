@@ -55,8 +55,9 @@ Output files
 
 - [Nextflow](https://www.nextflow.io/) (version 22.10+, DSL2)
 - [freebayes](https://github.com/freebayes/freebayes) (variant caller)
-- [bcftools](http://www.htslib.org/) (VCF manipulation)
+- [bcftools](http://www.htslib.org/) (VCF manipulation and normalization)
 - [htslib](http://www.htslib.org/) (bgzip for VCF compression)
+- [vcflib](https://github.com/vcflib/vcflib) (vcffilter for post-processing filtering)
 - Python 3
 
 ### Input Data
@@ -175,6 +176,164 @@ The pipeline uses the following freebayes settings optimized for pooled HPV samp
 | `--pooled-continuous` | - | Pooled sample model (continuous) |
 | `--haplotype-length` | 0 | Disable haplotype calling |
 | `--report-monomorphic` | - | Report monomorphic sites |
+
+## Complete Iterative Workflow (Full Run)
+
+The pipeline is designed to be run iteratively: each cycle calls variants in the specified regions, detects large deletions, and feeds those deletion regions back as input for the next cycle. This continues until no new deletions are found.
+
+### Step 1: Generate Initial BED Regions
+
+Split the HPV16 genome into 31 bp chunks (with -1 offset at starting positions):
+
+```bash
+bash scripts/make_bed.sh 0 7906 31 "gi|333031|lcl|HPV16REF.1|" > start_range.bed
+```
+
+### Step 2: Run the Iterative Loop
+
+The loop runs the pipeline repeatedly, each time re-analyzing regions where large deletions were detected, until convergence (no new deletions found):
+
+```bash
+bed_file='start_range.bed'
+
+count=1
+num_del=$(grep -c "" $bed_file)
+cat $bed_file > deletion.lib
+
+while [[ ${num_del} != 0 ]]; do
+    echo "Run ... $count"
+    nextflow run freebayes_loop.nf \
+        --publish_dir "Run_$count" \
+        --input_file $bed_file \
+        --bam_path /path/to/bam_paths.txt \
+        --ref /path/to/hpv16_ref.fa \
+        --min_del 1
+
+    echo "Update bed file by checking with deletion library ... Run $count"
+    python scripts/update_deletion_lib.py Run_$count/merge.vcf.gz.bed deletion.lib
+    bed_file="Run_$count/merge.vcf.gz.bed"
+    num_del=$(grep -c "" $bed_file)
+    count=$(( $count + 1 ))
+done > log_nf
+```
+
+**How it works:**
+
+1. **Run 1**: Calls variants across all initial BED regions (entire genome in 31 bp chunks)
+2. **Deletion detection**: `vcf2bed_03.py` (called inside `merge_vcfs`) identifies large deletions from the merged VCF
+3. **Library update**: `update_deletion_lib.py` compares new deletions against `deletion.lib` to find only novel deletion regions
+4. **Run 2+**: The pipeline re-runs on only the novel deletion regions, calling variants at higher resolution
+5. **Convergence**: The loop stops when no new deletions are found (`num_del == 0`)
+
+### Step 3: Post-processing — Merge All Runs
+
+After the iterative loop completes, merge VCFs from all run cycles into a single file:
+
+```bash
+# List and index all per-run VCFs
+ls Run_*/merge.vcf.gz > list_vcf.txt
+for i in $(cat list_vcf.txt); do
+    bcftools index -f $i
+done
+
+# Concatenate all runs
+bcftools concat -f list_vcf.txt --allow-overlaps --output merge_all_runs.vcf.gz
+```
+
+### Step 4: Check Remaining Deletions
+
+Verify no large deletions remain unresolved:
+
+```bash
+python scripts/vcf2bed_03.py 1 merge_all_runs.vcf.gz 30
+```
+
+### Step 5: Normalization
+
+Normalize the merged VCF to remove duplicates and decompose multi-allelic sites:
+
+```bash
+# Remove exact duplicates and normalize against reference
+bcftools norm --rm-dup exact -f /path/to/hpv16_ref.fa merge_all_runs.vcf.gz \
+    -o out.norm.vcf.gz -Oz
+```
+
+### Step 6: Variant Filtering
+
+Filter normalized variants using quality metrics with [vcffilter](https://github.com/vcflib/vcflib):
+
+```bash
+# Strict filtering
+vcffilter -f "QUAL > 30 & DP > 10 & EPP > 20 & SRP > 20 & SAP > 20" out.norm.vcf > out.norm.filter.vcf
+
+# Alternative filter thresholds (from lenient to strict):
+# vcffilter -f "QUAL > 30"                                                       # Quality only
+# vcffilter -f "QUAL > 30 & DP > 10 & EPP > 5  & SRP > 5  & SAP > 5"           # Lenient
+# vcffilter -f "QUAL > 30 & DP > 10 & EPP > 10 & SRP > 10 & SAP > 10"          # Moderate
+# vcffilter -f "QUAL > 30 & DP > 10 & EPP > 15 & SRP > 15 & SAP > 15"          # Moderate-strict
+# vcffilter -f "QUAL > 30 & DP > 10 & EPP > 20 & SRP > 20 & SAP > 20"          # Strict (recommended)
+```
+
+**Filter parameters:**
+
+| Filter | Description |
+|--------|-------------|
+| `QUAL > 30` | Minimum variant quality score |
+| `DP > 10` | Minimum read depth |
+| `EPP > 20` | End Placement Probability — strand bias at read ends |
+| `SRP > 20` | Strand balance Reference Probability |
+| `SAP > 20` | Strand balance Alternate Probability |
+
+### Step 7: Count Variants
+
+```bash
+# Count non-reference variants in the final VCF
+zcat merge_all_runs.vcf.gz | grep -v "#" | cut -f1-5 | awk '$5 != "."' | sort -u | wc -l
+```
+
+### Cleanup
+
+Remove Nextflow report files after the run:
+
+```bash
+rm -f report-*.html trace-*.txt timeline-*.html
+```
+
+### Complete Workflow Diagram
+
+```
+  make_bed.sh → start_range.bed
+                    │
+                    ▼
+         ┌── deletion.lib ◄──────────────────┐
+         │                                     │
+         │   ┌─────────────────────────────┐   │
+         │   │  while num_del != 0:        │   │
+         │   │    freebayes_loop.nf        │   │
+         │   │      → Run_N/merge.vcf.gz   │   │
+         │   │      → Run_N/merge.vcf.gz.bed   │
+         │   │    update_deletion_lib.py ──────┘
+         │   │    bed_file = new deletions │
+         │   └─────────────────────────────┘
+         │
+         ▼
+  bcftools concat (all Run_*/merge.vcf.gz)
+         │
+         ▼
+  merge_all_runs.vcf.gz
+         │
+         ▼
+  bcftools norm --rm-dup exact
+         │
+         ▼
+  out.norm.vcf.gz
+         │
+         ▼
+  vcffilter (quality filtering)
+         │
+         ▼
+  out.norm.filter.vcf (final variants)
+```
 
 ## Helper Scripts
 
