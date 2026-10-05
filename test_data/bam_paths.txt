@@ -1,0 +1,2 @@
+/private/tmp/freebayes_loop/test_data/sample1.bam
+/private/tmp/freebayes_loop/test_data/sample2.bam

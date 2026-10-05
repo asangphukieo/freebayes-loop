@@ -1,0 +1,46 @@
+digraph "dag_nf" {
+p0 [shape=point,label="",fixedsize=true,width=0.1,xlabel="Channel.fromPath"];
+p1 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="splitText"];
+p0 -> p1 [label="bed_input"];
+
+p1 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="splitText"];
+p2 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="splitCsv"];
+p1 -> p2;
+
+p2 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="splitCsv"];
+p3 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+p2 -> p3;
+
+p3 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+p4 [label="variant_calling:freebayes"];
+p3 -> p4 [label="bin"];
+
+p4 [label="variant_calling:freebayes"];
+p5 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+p4 -> p5;
+
+p4 [label="variant_calling:freebayes"];
+p6 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+p4 -> p6;
+
+p5 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+p7 [label="variant_calling:merge_vcfs"];
+p5 -> p7;
+
+p6 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+p7 [label="variant_calling:merge_vcfs"];
+p6 -> p7;
+
+p7 [label="variant_calling:merge_vcfs"];
+p10 [shape=point];
+p7 -> p10;
+
+p7 [label="variant_calling:merge_vcfs"];
+p9 [shape=point];
+p7 -> p9 [label="$out0"];
+
+p7 [label="variant_calling:merge_vcfs"];
+p8 [shape=point];
+p7 -> p8;
+
+}
