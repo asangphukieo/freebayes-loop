@@ -1,10 +1,16 @@
-# Freebayes-Loop
+# FreeBayes-Loop
 
-A Nextflow DSL2 pipeline for region-based parallel variant calling with [freebayes](https://github.com/freebayes/freebayes), designed for pooled HPV sequencing samples. The pipeline splits genomic regions from a BED file, runs freebayes in parallel per region, merges the resulting VCFs, and detects large deletions.
+FreeBayes-Loop is a Nextflow DSL2 pipeline for region-based parallel variant calling with FreeBayes for comprehensive variant calling across viral genomes. The pipeline divides the genome into predefined regions using a BED file, runs FreeBayes independently and in parallel for each region, identifies regions with missing or incomplete variant calls, repeats variant calling for these regions, and subsequently merges the resulting VCF files.
 
 ## Overview
 
-This pipeline addresses the computational challenge of variant calling across many pooled samples by parallelizing freebayes across genomic regions. It is particularly suited for HPV genome variant calling where pooled-sample analysis with high sensitivity is required.
+FreeBayes is a haplotype-based variant caller. Rather than relying solely on the precise alignment of individual reads, it evaluates candidate variants based on the sequences of reads and the haplotypes supported by those reads. This approach can reduce some of the ambiguity associated with multiple possible alignments of identical or highly similar sequences, particularly in regions containing indels or repetitive sequences.
+
+In practice, some genomic regions may contain no variant records in the initial FreeBayes output. This does not necessarily mean that FreeBayes explicitly skipped these regions. The absence of calls may result from several factors, including insufficient or uneven coverage, low mapping or base quality, ambiguous or repetitive sequence contexts, lack of sufficient alternate-allele support, or filtering criteria used during variant calling. In addition, haplotype-based representation may result in nearby variants being represented as a single complex or multi-nucleotide allele rather than as separate variant records.
+
+Such missing or incomplete variant representation can be challenging for downstream analyses, particularly when comprehensive identification of candidate variants across a viral genome is required.
+
+FreeBayes-Loop addresses this issue by identifying regions with missing or incomplete variant calls and repeating the FreeBayes analysis specifically for these regions. The purpose of this iterative regional calling strategy is to recover and validate additional candidate variants that may not have been reported during the initial genome-wide or region-based calling step, while maintaining the original region-based parallelization strategy.
 
 ### Pipeline DAG
 
