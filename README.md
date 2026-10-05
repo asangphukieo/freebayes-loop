@@ -6,6 +6,8 @@ FreeBayes-Loop is a Nextflow DSL2 pipeline for region-based parallel variant cal
 
 FreeBayes is a haplotype-based variant caller. Rather than relying solely on the precise alignment of individual reads, it evaluates candidate variants based on the sequences of reads and the haplotypes supported by those reads. This approach can reduce some of the ambiguity associated with multiple possible alignments of identical or highly similar sequences, particularly in regions containing indels or repetitive sequences.
 
+Within-host viral heterogeneity may complicate haplotype-based variant calling because multiple viral haplotypes can coexist within the same sample, resulting in complex allele combinations and variable alternate-allele support.
+
 In practice, some genomic regions may contain no variant records in the initial FreeBayes output. This does not necessarily mean that FreeBayes explicitly skipped these regions. The absence of calls may result from several factors, including insufficient or uneven coverage, low mapping or base quality, ambiguous or repetitive sequence contexts, lack of sufficient alternate-allele support, or filtering criteria used during variant calling. In addition, haplotype-based representation may result in nearby variants being represented as a single complex or multi-nucleotide allele rather than as separate variant records.
 
 Such missing or incomplete variant representation can be challenging for downstream analyses, particularly when comprehensive identification of candidate variants across a viral genome is required.
